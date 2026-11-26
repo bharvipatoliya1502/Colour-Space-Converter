@@ -14,6 +14,7 @@ from math_engine.converter import (
     image_difference,
     mathematical_summary,
     change_of_basis_demo,
+    GRAYSCALE_MATRIX, grayscale_null_space, grayscale_projection_matrix, same_gray_demo,
 )
 from db.database import (
     initialize_database,
@@ -23,7 +24,8 @@ from db.database import (
     get_recent_history,
 )
 from ds.batch_queue import BatchQueue
-from app.batch_processor import process_batch_file
+from app.batch_processor import process_batch_file, enqueue_batch_file, run_batch_job
+from app.plots import channel_histogram_figure
 
 
 def image_bytes(image):
@@ -103,6 +105,11 @@ def render_app():
                             use_container_width=True,
                         )
 
+                    fig = channel_histogram_figure(result["yiq"])
+                    st.pyplot(fig)
+                    import matplotlib.pyplot as plt
+                    plt.close(fig)
+
                     st.subheader("Restored RGB image")
                     cols = st.columns(2)
                     cols[0].image(result["original"], caption="Original", use_container_width=True)
@@ -157,33 +164,48 @@ def render_app():
                         "It keeps brightness but loses two dimensions of colour information. "
                         "Many different RGB colours can produce the same gray value."
                     )
+                    basis = grayscale_null_space()
+                    projection = grayscale_projection_matrix()
+                    st.write("Grayscale matrix G (1 × 3):")
+                    st.dataframe(GRAYSCALE_MATRIX)
+                    st.write("Rank: 1 | Nullity: 2 | Rank-nullity: 3 = 1 + 2")
+                    st.latex(r"Gv=0")
+                    st.write("Null-space basis vectors:")
+                    st.dataframe(basis)
+                    st.write("Projection matrix M:")
+                    st.dataframe(projection)
+                    st.write("M x M = M: grayscale is a projection onto the gray axis along the null space.")
+                    demo = same_gray_demo()
+                    swatches = []
+                    for rgb_value in (demo["rgb1"], demo["rgb2"]):
+                        swatches.append(Image.new("RGB", (80, 80), tuple(int(round(x)) for x in rgb_value)))
+                    c1, c2 = st.columns(2)
+                    c1.image(swatches[0], caption=f"RGB {demo['rgb1']} | Gray {demo['gray1']:.3f}")
+                    c2.image(swatches[1], caption=f"RGB {demo['rgb2']} | Gray {demo['gray2']:.3f}")
             except (UnidentifiedImageError, OSError, ValueError) as error:
                 st.error(f"Could not open this image: {error}")
 
     with batch_tab:
-        files = st.file_uploader(
-            "Choose multiple images",
-            type=["png", "jpg", "jpeg"],
-            accept_multiple_files=True,
-            key="batch_files",
-        )
-        if st.button("Process queue", disabled=not files):
-            queue = BatchQueue()
+        files = st.file_uploader("Choose multiple images", type=["png","jpg","jpeg"],
+                                 accept_multiple_files=True, key="batch_files")
+        if "batch_jobs" not in st.session_state: st.session_state["batch_jobs"] = []
+        if st.button("Enqueue files", disabled=not files):
             for file in files:
-                queue.enqueue(file)
-
-            st.write(f"Images in queue: {queue.size()}")
-            while not queue.is_empty():
-                file = queue.dequeue()
-                result = process_batch_file(file)
-                if result["status"] == "success":
-                    st.write(
-                        f"{file.name}: completed "
-                        f"(MAE {result['mae']:.6f}, RMSE {result['rmse']:.6f})"
-                    )
-                else:
-                    st.error(f"{file.name}: failed — {result['error']}")
-            st.success("Queue processing completed.")
+                st.session_state["batch_jobs"].append(enqueue_batch_file(file))
+        jobs=st.session_state["batch_jobs"]
+        if jobs:
+            st.subheader("Queued jobs")
+            st.dataframe([{"Image":j["file"].name,"Image ID":j["image_id"],
+                           "Conversion ID":j["conversion_id"],"Status":"queued"} for j in jobs])
+            if st.button("Process queue"):
+                queue=BatchQueue()
+                for job in jobs: queue.enqueue(job)
+                while not queue.is_empty():
+                    job=queue.dequeue()
+                    result=run_batch_job(job)
+                    st.write(f"{job['file'].name}: {result['status']}")
+                st.session_state["batch_jobs"]=[]
+                st.success("Queue processing completed. Final statuses are saved in Database.")
 
     with maths_tab:
         st.subheader("RGB to YIQ matrix")
@@ -223,6 +245,22 @@ def render_app():
             "The RGB to YIQ matrix has rank 3 and is invertible. "
             "The grayscale matrix has rank 1 and loses colour information."
         )
+
+        st.subheader("Grayscale null space and projection")
+        st.write("G =")
+        st.dataframe(GRAYSCALE_MATRIX)
+        st.write("Rank = 1; nullity = 2; rank-nullity: 3 = 1 + 2")
+        st.latex(r"Gv=0")
+        st.dataframe(grayscale_null_space())
+        st.write("Projection matrix M = [1,1,1]^T G")
+        st.dataframe(grayscale_projection_matrix())
+        st.write("M x M = M: grayscale is a projection onto the gray axis along the null space.")
+        demo_gray = same_gray_demo()
+        sw1 = Image.new("RGB",(80,80),tuple(int(round(x)) for x in demo_gray["rgb1"]))
+        sw2 = Image.new("RGB",(80,80),tuple(int(round(x)) for x in demo_gray["rgb2"]))
+        cc1,cc2=st.columns(2)
+        cc1.image(sw1,caption=f"RGB {demo_gray['rgb1']} | gray {demo_gray['gray1']:.3f}")
+        cc2.image(sw2,caption=f"RGB {demo_gray['rgb2']} | gray {demo_gray['gray2']:.3f}")
 
     with history_tab:
         st.subheader("Saved conversions")

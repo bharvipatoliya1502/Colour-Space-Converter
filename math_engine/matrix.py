@@ -111,3 +111,36 @@ def matrix_rank(matrix: Matrix, tolerance: float = 1e-10) -> int:
         rank += 1
         pivot_row += 1
     return rank
+
+
+def matrix_null_space(matrix: Matrix, tolerance: float = 1e-10):
+    """Return a basis for the null space using RREF and free variables."""
+    _validate_matrix(matrix)
+    a = [[float(x) for x in row] for row in matrix]
+    rows, cols = len(a), len(a[0])
+    pivot_cols = []
+    pivot_row = 0
+    for col in range(cols):
+        if pivot_row >= rows:
+            break
+        pivot = max(range(pivot_row, rows), key=lambda r: abs(a[r][col]))
+        if abs(a[pivot][col]) <= tolerance:
+            continue
+        a[pivot_row], a[pivot] = a[pivot], a[pivot_row]
+        value = a[pivot_row][col]
+        a[pivot_row] = [x / value for x in a[pivot_row]]
+        for r in range(rows):
+            if r != pivot_row:
+                factor = a[r][col]
+                a[r] = [a[r][c] - factor * a[pivot_row][c] for c in range(cols)]
+        pivot_cols.append(col)
+        pivot_row += 1
+    free_cols = [c for c in range(cols) if c not in pivot_cols]
+    basis = []
+    for free in free_cols:
+        vector = [0.0] * cols
+        vector[free] = 1.0
+        for r, pivot_col in enumerate(pivot_cols):
+            vector[pivot_col] = -a[r][free]
+        basis.append(vector)
+    return basis

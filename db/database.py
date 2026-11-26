@@ -1,125 +1,64 @@
-"""SQLite persistence for image uploads and conversion history."""
-
-import sqlite3
+"""SQLite persistence; canonical schema is maintained in schema.sql."""
+import json, sqlite3
 from contextlib import contextmanager
 from pathlib import Path
 from datetime import datetime
-
 DB_PATH = Path(__file__).resolve().parent / "project_data.db"
-
+VALID_STATUSES = {"queued", "processing", "success", "failed"}
 
 @contextmanager
 def get_connection():
-    """Yield a SQLite connection and always commit/rollback and close it."""
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-    connection = sqlite3.connect(DB_PATH)
+    conn=sqlite3.connect(DB_PATH)
     try:
-        connection.execute("PRAGMA foreign_keys = ON")
-        yield connection
-        connection.commit()
+        conn.execute("PRAGMA foreign_keys=ON")
+        yield conn; conn.commit()
     except Exception:
-        connection.rollback()
-        raise
-    finally:
-        connection.close()
-
+        conn.rollback(); raise
+    finally: conn.close()
 
 def initialize_database():
     with get_connection() as conn:
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS images (
-                image_id INTEGER PRIMARY KEY AUTOINCREMENT,
-                filename TEXT NOT NULL,
-                uploaded_at TEXT NOT NULL,
-                width INTEGER,
-                height INTEGER,
-                file_format TEXT
-            )
-        """)
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS colour_spaces (
-                colour_space_id INTEGER PRIMARY KEY AUTOINCREMENT,
-                image_id INTEGER NOT NULL,
-                source_space TEXT NOT NULL,
-                target_space TEXT NOT NULL,
-                matrix_name TEXT NOT NULL,
-                created_at TEXT NOT NULL,
-                FOREIGN KEY(image_id) REFERENCES images(image_id)
-            )
-        """)
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS conversions (
-                conversion_id INTEGER PRIMARY KEY AUTOINCREMENT,
-                image_id INTEGER NOT NULL,
-                operation TEXT NOT NULL,
-                mae REAL,
-                rmse REAL,
-                status TEXT NOT NULL,
-                created_at TEXT NOT NULL,
-                FOREIGN KEY(image_id) REFERENCES images(image_id)
-            )
-        """)
+        conn.executescript((Path(__file__).parent / "schema.sql").read_text(encoding="utf-8"))
+        cols={r[1] for r in conn.execute("PRAGMA table_info(colour_spaces)")}
+        for name, kind in (("matrix_values","TEXT"),("determinant","REAL"),("matrix_rank","INTEGER")):
+            if name not in cols: conn.execute(f"ALTER TABLE colour_spaces ADD COLUMN {name} {kind}")
 
+def save_image_record(filename,width,height,file_format):
+    with get_connection() as c:
+        cur=c.execute("INSERT INTO images(filename,uploaded_at,width,height,file_format) VALUES(?,?,?,?,?)",
+          (filename,datetime.now().isoformat(timespec="seconds"),width,height,str(file_format or "Unknown")))
+        return cur.lastrowid
 
-def save_image_record(filename, width, height, file_format):
-    with get_connection() as conn:
-        cursor = conn.execute(
-            """INSERT INTO images(filename, uploaded_at, width, height, file_format)
-               VALUES (?, ?, ?, ?, ?)""",
-            (filename, datetime.now().isoformat(timespec="seconds"),
-             int(width) if width is not None else None,
-             int(height) if height is not None else None,
-             str(file_format or "Unknown"))
-        )
-        return cursor.lastrowid
+def update_image_dimensions(image_id,width,height):
+    with get_connection() as c: c.execute("UPDATE images SET width=?,height=? WHERE image_id=?",(width,height,image_id))
 
+def save_colour_space_record(image_id,source_space="RGB",target_space="YIQ"):
+    from math_engine.converter import RGB_TO_YIQ
+    from math_engine.matrix import determinant,matrix_rank
+    with get_connection() as c:
+        c.execute("""INSERT INTO colour_spaces(image_id,source_space,target_space,matrix_name,created_at,matrix_values,determinant,matrix_rank)
+        VALUES(?,?,?,?,?,?,?,?)""",(image_id,source_space,target_space,"RGB_TO_YIQ_3x3",
+        datetime.now().isoformat(timespec="seconds"),json.dumps(RGB_TO_YIQ),determinant(RGB_TO_YIQ),matrix_rank(RGB_TO_YIQ)))
 
-def update_image_dimensions(image_id, width, height):
-    """Update dimensions after an uploaded image has been decoded successfully."""
-    with get_connection() as conn:
-        conn.execute(
-            "UPDATE images SET width = ?, height = ? WHERE image_id = ?",
-            (int(width), int(height), int(image_id)),
-        )
+def save_conversion_record(image_id,operation,mae=None,rmse=None,status="success"):
+    if status not in VALID_STATUSES: raise ValueError("Invalid conversion status.")
+    with get_connection() as c:
+        cur=c.execute("INSERT INTO conversions(image_id,operation,mae,rmse,status,created_at) VALUES(?,?,?,?,?,?)",
+        (image_id,operation,mae,rmse,status,datetime.now().isoformat(timespec="seconds")))
+        return cur.lastrowid
 
-
-def save_colour_space_record(image_id, source_space="RGB", target_space="YIQ"):
-    with get_connection() as conn:
-        conn.execute(
-            """INSERT INTO colour_spaces
-               (image_id, source_space, target_space, matrix_name, created_at)
-               VALUES (?, ?, ?, ?, ?)""",
-            (image_id, source_space, target_space, "RGB_TO_YIQ_3x3",
-             datetime.now().isoformat(timespec="seconds"))
-        )
-
-
-def save_conversion_record(image_id, operation, mae=None, rmse=None, status="success"):
-    with get_connection() as conn:
-        conn.execute(
-            """INSERT INTO conversions
-               (image_id, operation, mae, rmse, status, created_at)
-               VALUES (?, ?, ?, ?, ?, ?)""",
-            (image_id, operation, mae, rmse, status,
-             datetime.now().isoformat(timespec="seconds"))
-        )
-
+def update_conversion_status(conversion_id,status,mae=None,rmse=None):
+    if status not in VALID_STATUSES: raise ValueError("Invalid conversion status.")
+    with get_connection() as c:
+        c.execute("UPDATE conversions SET status=?,mae=COALESCE(?,mae),rmse=COALESCE(?,rmse) WHERE conversion_id=?",
+                  (status,mae,rmse,conversion_id))
 
 def get_recent_history(limit=20):
-    with get_connection() as conn:
-        return conn.execute("""
-            SELECT c.conversion_id, i.filename, c.operation, c.mae, c.rmse,
-                   c.status, c.created_at
-            FROM conversions c
-            JOIN images i ON i.image_id = c.image_id
-            ORDER BY c.conversion_id DESC
-            LIMIT ?
-        """, (int(limit),)).fetchall()
-
+    with get_connection() as c:
+        return c.execute("""SELECT c.conversion_id,i.filename,c.operation,c.mae,c.rmse,c.status,c.created_at
+        FROM conversions c JOIN images i ON i.image_id=c.image_id ORDER BY c.conversion_id DESC LIMIT ?""",(int(limit),)).fetchall()
 
 def get_table_counts():
-    with get_connection() as conn:
-        return {
-            table: conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
-            for table in ("images", "colour_spaces", "conversions")
-        }
+    with get_connection() as c:
+        return {t:c.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0] for t in ("images","colour_spaces","conversions")}

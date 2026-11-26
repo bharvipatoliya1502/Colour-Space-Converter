@@ -1,7 +1,7 @@
 """RGB/YIQ image conversion routines."""
 
 from PIL import Image
-from .matrix import matrix_multiply, matrix_inverse, determinant, matrix_rank
+from .matrix import matrix_multiply, matrix_inverse, determinant, matrix_rank, matrix_null_space
 
 RGB_TO_YIQ = [
     [0.299, 0.587, 0.114],
@@ -70,7 +70,7 @@ def convert_yiq_array_to_rgb(yiq):
         for col in range(width):
             rgb[row, col] = yiq_pixel_to_rgb(array[row, col])
     rgb = np.clip(np.rint(rgb), 0, 255).astype("uint8")
-    return Image.fromarray(rgb, mode="RGB")
+    return Image.fromarray(rgb)
 
 
 def channel_preview(channel, channel_name):
@@ -85,17 +85,57 @@ def channel_preview(channel, channel_name):
             display = np.full(values.shape, 127.5)
         else:
             display = (values - low) * (255.0 / (high - low))
-    return Image.fromarray(np.rint(display).astype("uint8"), mode="L")
+    return Image.fromarray(np.rint(display).astype("uint8"))
 
 
 def convert_image_to_grayscale(image):
-    """Map RGB to one luminance channel; colour information is discarded."""
+    """Apply the grayscale 1x3 matrix to every pixel from scratch."""
     import numpy as np
     rgb = np.asarray(_as_rgb_image(image), dtype=np.float64)
-    gray = (rgb[:, :, 0] * 0.299 +
-            rgb[:, :, 1] * 0.587 +
-            rgb[:, :, 2] * 0.114)
-    return Image.fromarray(np.clip(np.rint(gray), 0, 255).astype("uint8"), mode="L")
+    gray = np.empty(rgb.shape[:2], dtype=np.float64)
+    for row in range(rgb.shape[0]):
+        for col in range(rgb.shape[1]):
+            vector = [[float(v)] for v in rgb[row, col]]
+            gray[row, col] = matrix_multiply(GRAYSCALE_MATRIX, vector)[0][0]
+    return Image.fromarray(np.clip(np.rint(gray), 0, 255).astype("uint8"))
+
+
+def grayscale_projection_matrix():
+    return matrix_multiply([[1.0], [1.0], [1.0]], GRAYSCALE_MATRIX)
+
+
+def grayscale_null_space():
+    return matrix_null_space(GRAYSCALE_MATRIX)
+
+
+def same_gray_demo(rgb=(200, 100, 50)):
+    """Return two in-range RGB colours with equal grayscale luminance."""
+    if len(rgb) != 3 or any(not 0 <= float(x) <= 255 for x in rgb):
+        raise ValueError("RGB must contain three values in the range 0..255.")
+    original = [float(x) for x in rgb]
+    preferred = [0.587, -0.299, 0.0]
+    candidates = [preferred] + grayscale_null_space()
+    chosen = None
+    for vector in candidates:
+        for direction in (1.0, -1.0):
+            v = [direction * x for x in vector]
+            limits = [50.0]
+            for x, delta in zip(original, v):
+                if delta > 0: limits.append((255.0 - x) / delta)
+                elif delta < 0: limits.append(x / (-delta))
+            t = max(0.0, min(limits))
+            if t > 1e-8:
+                chosen = (v, t)
+                break
+        if chosen: break
+    if not chosen:
+        raise ValueError("No distinct in-range colour with the same gray value exists.")
+    v, t = chosen
+    second = [original[i] + t * v[i] for i in range(3)]
+    gray1 = sum(GRAYSCALE_MATRIX[0][i] * original[i] for i in range(3))
+    gray2 = sum(GRAYSCALE_MATRIX[0][i] * second[i] for i in range(3))
+    return {"rgb1": tuple(original), "rgb2": tuple(second),
+            "gray1": gray1, "gray2": gray2, "null_vector": tuple(v)}
 
 
 def image_difference(original, restored):
@@ -109,7 +149,7 @@ def image_difference(original, restored):
     mae = float(diff.mean())
     rmse = float(np.sqrt(np.mean((a - b) ** 2)))
     heat = np.clip(diff.mean(axis=2) * 4.0, 0, 255).astype("uint8")
-    return mae, rmse, Image.fromarray(heat, mode="L")
+    return mae, rmse, Image.fromarray(heat)
 
 
 def change_of_basis_demo(rgb=(255.0, 120.0, 60.0)):
