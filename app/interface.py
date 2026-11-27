@@ -102,7 +102,7 @@ def render_app():
                         col.image(
                             channel_preview(result["yiq"][:, :, index], channel),
                             caption=f"{channel} channel",
-                            use_container_width=True,
+                            width="stretch",
                         )
 
                     fig = channel_histogram_figure(result["yiq"])
@@ -112,14 +112,14 @@ def render_app():
 
                     st.subheader("Restored RGB image")
                     cols = st.columns(2)
-                    cols[0].image(result["original"], caption="Original", use_container_width=True)
-                    cols[1].image(result["restored"], caption="Restored", use_container_width=True)
+                    cols[0].image(result["original"], caption="Original", width="stretch")
+                    cols[1].image(result["restored"], caption="Restored", width="stretch")
 
                     st.write(f"Mean Absolute Error (MAE): {result['mae']:.6f}")
                     st.write(f"Root Mean Square Error (RMSE): {result['rmse']:.6f}")
 
                     st.subheader("Grayscale image")
-                    st.image(result["grayscale"], use_container_width=True)
+                    st.image(result["grayscale"], width="stretch")
                     st.write(
                         "Grayscale keeps brightness only. Different RGB colours can have "
                         "the same brightness, so the original colours cannot be recovered uniquely."
@@ -149,7 +149,7 @@ def render_app():
             try:
                 gray_image = Image.open(gray_upload).convert("RGB")
                 gray_image.thumbnail((400, 400))
-                st.image(gray_image, caption="Original RGB image", use_container_width=True)
+                st.image(gray_image, caption="Original RGB image", width="stretch")
                 if st.button("Convert to grayscale", key="convert_grayscale"):
                     gray_result = convert_image_to_grayscale(gray_image)
                     st.session_state["grayscale_result"] = {
@@ -158,7 +158,7 @@ def render_app():
                     }
                 gray_result = st.session_state.get("grayscale_result")
                 if gray_result and gray_result["filename"] == gray_upload.name:
-                    st.image(gray_result["image"], caption="Grayscale output", use_container_width=True)
+                    st.image(gray_result["image"], caption="Grayscale output", width="stretch")
                     st.info(
                         "Linear algebra: grayscale is a rank-1 transformation from R³ to R¹. "
                         "It keeps brightness but loses two dimensions of colour information. "
@@ -215,14 +215,14 @@ def render_app():
             r"\begin{bmatrix}R\\G\\B\end{bmatrix}"
         )
         st.write("Matrix used in the conversion:")
-        st.dataframe(RGB_TO_YIQ, use_container_width=True)
+        st.dataframe(RGB_TO_YIQ, width="stretch")
 
         summary = mathematical_summary()
         st.write(f"Determinant: {summary['determinant']:.6f}")
         st.write(f"Rank of RGB to YIQ matrix: {summary['rank_rgb_to_yiq']}")
         st.write(f"Rank of grayscale matrix: {summary['rank_grayscale']}")
         st.write("Inverse matrix:")
-        st.dataframe(summary["inverse"], use_container_width=True)
+        st.dataframe(summary["inverse"], width="stretch")
 
         st.subheader("Change of basis: RGB coordinates to YIQ coordinates")
         st.write(
@@ -233,7 +233,7 @@ def render_app():
         st.latex(r"[RGB]_{RGB} = B_{YIQ\ in\ RGB}[YIQ]_{YIQ}")
         st.latex(r"[YIQ]_{YIQ} = B_{YIQ\ in\ RGB}^{-1}[RGB]_{RGB}")
         st.write("YIQ basis vectors expressed in RGB coordinates (columns form the basis matrix):")
-        st.dataframe(summary["yiq_basis_in_rgb"], use_container_width=True)
+        st.dataframe(summary["yiq_basis_in_rgb"], width="stretch")
         demo = change_of_basis_demo()
         st.write(f"Example RGB colour: {demo['rgb']}")
         st.write(f"Its YIQ coordinates: {tuple(round(v, 6) for v in demo['yiq'])}")
@@ -279,7 +279,7 @@ def render_app():
                     }
                     for row in history
                 ],
-                use_container_width=True,
+                width="stretch",
             )
         else:
             st.write("No conversions saved yet.")
