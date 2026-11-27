@@ -18,7 +18,7 @@ def main():
     output=run.stdout + "\n" + run.stderr
     output=re.sub(r"\x1b\[[0-9;]*m", "", output)
     passed=[line.strip() for line in output.splitlines() if " PASSED" in line]
-    summary=next((line.strip() for line in output.splitlines() if " passed" in line and ("failed" in line or "skipped" in line or line.strip().endswith("passed"))),"Summary unavailable")
+    summary=next((re.sub(r"=+","",l).strip() for l in output.splitlines() if re.search(r"\d+ passed",l)),"Summary unavailable")
     a=np.asarray(RGB_TO_YIQ,dtype=float)
     sample=np.array([255.,120.,60.])
     diff_pixel=float(np.max(np.abs(np.asarray([[sum(RGB_TO_YIQ[i][j]*sample[j] for j in range(3))] for i in range(3)]).ravel()-a@sample)))

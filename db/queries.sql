@@ -19,4 +19,5 @@ FROM conversions AS c
 JOIN images AS i ON i.image_id = c.image_id
 WHERE c.status = 'failed'
 ORDER BY c.conversion_id DESC;
-\n-- Conversion counts grouped by status.\nSELECT status, COUNT(*) AS conversion_count FROM conversions GROUP BY status;\n
+-- Conversion counts grouped by status.
+SELECT status, COUNT(*) AS conversion_count FROM conversions GROUP BY status;

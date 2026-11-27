@@ -69,7 +69,7 @@ def render_app():
             try:
                 image = Image.open(uploaded).convert("RGB")
                 image.thumbnail((400, 400))
-                st.image(image, caption="Original RGB image", use_container_width=True)
+                st.image(image, caption="Original RGB image", width="stretch")
 
                 if st.button("Convert image"):
                     yiq, original = convert_image_to_yiq(image)

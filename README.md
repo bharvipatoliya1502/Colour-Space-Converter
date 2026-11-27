@@ -88,7 +88,8 @@ Colour-Space-Converter/
 │   ├── test_linear_algebra_extensions.py
 │   ├── test_plots.py
 │   └── validation_results.md
-├── .streamlit/  (local configuration; excluded from the ZIP)
+├── .streamlit/
+│   └── config.toml
 ├── .gitignore
 ├── install.bat
 ├── main.py
