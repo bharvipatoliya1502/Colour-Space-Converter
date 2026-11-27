@@ -45,7 +45,7 @@ Colour images are commonly stored as RGB, while television colour systems and so
 ## Project Structure
 
 ```text
-Colour_Space_Converter_Project/
+Colour-Space-Converter/
 ├── app/
 │   ├── __init__.py
 │   ├── batch_processor.py
@@ -65,7 +65,8 @@ Colour_Space_Converter_Project/
 │   ├── converter.py
 │   └── matrix.py
 ├── report/
-│   └── .gitkeep
+│   ├── .gitkeep
+│   └── Colour_Space_Converter_Report.pdf
 ├── screenshots/
 │   ├── 01_image_converter.png
 │   ├── 02_yiq_channels_and_restoration.png
